@@ -1,43 +1,53 @@
 #include "mbed.h"
 #include "arm_book_lib.h"
+#include "display.h"
 
 //=====[Defines]===============================================================
 
-//Light levels to adjust based on testing of light sensor and potentiometer
-#define DAYLIGHT       0.6
-#define DUSK           0.5
-#define LIGHTS_ON      0.3
-#define LIGHTS_OFF     0.7
-//Delays for auto mode
-#define LIGHT_DELAY_DAY           2000
-#define LIGHT_DELAY_DUSK          1000
+//Millisecond delays for wiper control
+#define RAMP_TIME_HIGH      279
+#define RAMP_TIME_LOW       372
+#define INT_DELAY1          2256     //3000 - 744
+#define INT_DELAY2          5256
+#define INT_DELAY3          7256
+//Servo PWM settings
+#define DUTY_MIN 0.025
+#define DUTY_MAX 0.120
+#define STEP_LOW  0.00285
+#define STEP_HIGH 0.0038
+#define PERIOD 0.02
 
-#define NUMBER_OF_AVG_SAMPLES    100
-#define TIME_INCREMENT_MS        10 //Needed for debounce of ignition?
-#define DEBOUNCE_BUTTON_TIME_MS                 40
+// Mode control thresholds
+#define LOW_SPEED   0.25
+#define INT_MODE    0.5
+#define HIGH_SPEED  0.75
+
+// Interval delay control thresholds
+#define INT3   0.33
+#define INT5   0.66
+#define INT8   1.0
+
+
+//#define NUMBER_OF_AVG_SAMPLES    100   //skip averaging - loop too slow
+#define TIME_INCREMENT_MS        10 //Need to be longer than servo period
+#define DEBOUNCE_BUTTON_TIME_MS  20
+
 
 //=====[Declaration and initialization of public global objects]===============
 
 DigitalIn ignition(BUTTON1);  
-DigitalIn driverSeat(D2); 
+DigitalIn driverSeat(PE_8); 
 
-DigitalOut lowBeamLeft(D3);
-DigitalOut lowBeamRight(D4);
+DigitalOut ignitionLight(LED2);
 
+AnalogIn wiperMode(A0);
+AnalogIn intVal(A1);
 
-UnbufferedSerial uartUsb(USBTX, USBRX, 115200); // set up for debugging
-
-AnalogIn potentiometer(A0);
-AnalogIn ldrSensor(A1);
+PwmOut servo(PF_9);
 
 //=====[Declaration and initialization of public global variables]=============
 
-enum lightMode_t {
-    ONmode,
-    AUTOmode,
-    OFFmode
-};
-lightMode_t lightMode = OFFmode; 
+ 
 bool engineOn = false;
 int accumulatedDebounceButtonTime     = 0;
 enum buttonState_t {
@@ -48,9 +58,23 @@ enum buttonState_t {
 };
 buttonState_t ignitionState;
 
-float potReadingsArray[NUMBER_OF_AVG_SAMPLES];
-float ldrSensorReadingsArray[NUMBER_OF_AVG_SAMPLES];
+enum wiperMode_t {
+    HSmode,
+    LSmode,
+    OFFmode,
+    INTmode
+};
 
+wiperMode_t modeSetting;
+
+enum intMode_t {
+    int1,
+    int2,
+    int3
+};
+intMode_t intSetting;
+
+float wiperPos; //position of wiper
 //=====[Declarations (prototypes) of public functions]=========================
 
 void inputsInit();
@@ -58,11 +82,9 @@ void outputsInit();
 void ignitionButtonInit();
 
 void ignitionUpdate();
-void setLightMode();
-void lightControl();
-
-float averageLdrReading();
-float averagePotReading();
+void setWiperMode();
+void wiperControl();
+void displayMode();
 
 bool debounceIgnitionUpdate();
 
@@ -73,9 +95,10 @@ int main()
     inputsInit();
     outputsInit();
     while (true) {
-        ignitionUpdate();  //check for light system activation 
-        setLightMode();   //check light dial and set mode
-        lightControl(); //if automode, control light, else set lights on/off
+        ignitionUpdate();  //set ignition state 
+        setWiperMode();   //check wiper controls to set mode
+        wiperControl(); //based on wiper mode, control servo
+        displayMode(); //display appropriate mode
         delay(TIME_INCREMENT_MS);
     }
 }
@@ -90,8 +113,9 @@ void inputsInit()
 
 void outputsInit()
 {
-    lowBeamLeft = OFF;
-    lowBeamRight = OFF;
+    displayInit();
+    servo.period(PERIOD);
+    ignitionLight = OFF;
 }
 
 void ignitionButtonInit()
@@ -109,89 +133,135 @@ void ignitionUpdate()
     if ( !engineOn ) {  // Turn engine on if it is off
         if ( driverSeat && ignitionReleasedEvent) {
             engineOn = true;
-            uartUsb.write ("Engine on \r\n", 12);
+            ignitionLight = ON;
+ //           uartUsb.write ("Engine on \r\n", 12);
         }
     }else{             // Turn engine off if it is on
-        if ( driverSeat && ignitionReleasedEvent) {
+        if ( ignitionReleasedEvent) {
             engineOn = false;
-            uartUsb.write ("Engine off \r\n", 13);
+            ignitionLight = OFF;
+ //           uartUsb.write ("Engine off \r\n", 13);
         }
     }
 }
 
-void setLightMode() {
+void setWiperMode() {
     char str[100];
     int strLength;
-    float potAve = averagePotReading();
+    float wiperRead = wiperMode.read();
+    float intervalRead = intVal.read();
 
   if (engineOn) {
-    sprintf ( str, "Potentiometer: %.3f    ", potAve);
-    strLength = strlen(str);
-    uartUsb.write( str, strLength );
-    if (potAve <= LIGHTS_ON ) {
-        lightMode = ONmode;
-        uartUsb.write("Lights ON \r\n", 12);
+ //   sprintf ( str, "Wiper Mode: %.3f    ", potAve);
+ //   strLength = strlen(str);
+//    uartUsb.write( str, strLength );
+    if (wiperRead <= LOW_SPEED ) {
+        modeSetting = OFFmode;
     }else{
-        if (potAve >= LIGHTS_OFF ){
-            lightMode = OFFmode;
-            uartUsb.write("Lights OFF \r\n", 13);
+        if (wiperRead <= INT_MODE ){
+            modeSetting = LSmode;
         }else{
-            if ((potAve > LIGHTS_ON) && (potAve < LIGHTS_OFF)) {
-            lightMode = AUTOmode;
-            uartUsb.write("Lights AUTO \r\n", 14);
+            if (wiperRead <= HIGH_SPEED) {
+            modeSetting = INTmode;
+            }
+            else {
+                modeSetting = HSmode;
             }
         }
     }
-    }  
+     if (intervalRead <= INT3 ) {
+        intSetting = int1;
+    }else{
+        if (intervalRead <= INT5 ){
+            intSetting = int2;
+        }else{
+            if (intervalRead <= INT8) {
+            intSetting = int3;
+            }
+        }
+    }
+    } else {
+        modeSetting = OFFmode;  //when engine is off
+    }
 }
 
-void lightControl() {
-    char str[100];
-    int strLength;
-    float potAve;
-    static int timeToOff = 0;
-    static int timeToOn = 0;
- 
-   if (engineOn) {
-       switch (lightMode) {
-           case (ONmode):  //OFF
-                lowBeamLeft = ON;
-                lowBeamRight = ON;
+void wiperControl() {
+ static int ticker = 0; //keep track of 30ms timer
+ static int wipeTime = 0; //keep track of ramp and interfal time
+ ticker = ticker + TIME_INCREMENT_MS;
+   if (engineOn && (ticker >= 30)) {
+            ticker = 0;
+            switch (modeSetting) {
+                case (OFFmode):  //OFF
+                wiperPos = DUTY_MIN;
+                wipeTime = 0;
+                servo.write(wiperPos);
+            break;
+                case (LSmode):  //low speed  
+                wipeTime = wipeTime + 3*TIME_INCREMENT_MS;
+                if (wipeTime <= RAMP_TIME_LOW) {
+                wiperPos = wiperPos + STEP_LOW;     
+                servo.write(wiperPos);
+                }else {
+                    if (wipeTime <= (2*RAMP_TIME_LOW)) {
+                        wiperPos = wiperPos - STEP_LOW;
+                        servo.write(wiperPos);
+                        } else {
+                            wipeTime = 0;
+                            wiperPos = DUTY_MIN;
+                            servo.write(wiperPos);
+                        }
+                }
            break;
-           case (AUTOmode):  //AUTO - need to add delay mechanisms           
-                sprintf ( str, "LDR Sensor: %g \r\n", averageLdrReading() );
-                strLength = strlen(str);
-                uartUsb.write( str, strLength );
-                if ( (averageLdrReading() > DAYLIGHT) ) {
-                    timeToOff = timeToOff + TIME_INCREMENT_MS;
-                    if (timeToOff > LIGHT_DELAY_DAY) {
-                    lowBeamLeft = OFF;
-                    lowBeamRight = OFF;
-                    timeToOff = 0;
-                    }
-                } 
-                if (averageLdrReading() < DUSK ) {
-                    timeToOn = timeToOn + TIME_INCREMENT_MS;
-                    if (timeToOn > LIGHT_DELAY_DUSK) {
-                    lowBeamLeft = ON;
-                    lowBeamRight = ON;
-                    timeToOn = 0;
-                    }
-                }  
-           break;
-           case (OFFmode):  //OFF
-                lowBeamLeft = OFF;
-                lowBeamRight = OFF;
+                case (HSmode):  //OFF
+                wipeTime = wipeTime + 3*TIME_INCREMENT_MS;
+                 if (wipeTime <= RAMP_TIME_HIGH) {
+                wiperPos = wiperPos + STEP_HIGH;     
+                servo.write(wiperPos);
+                }else {
+                    if (wipeTime <= (2*RAMP_TIME_HIGH)) {
+                        wiperPos = wiperPos - STEP_HIGH;
+                        servo.write(wiperPos);
+                        } else {
+                            wipeTime = 0;
+                            wiperPos = DUTY_MIN;
+                        }
+                }                         
            break;
 
            default:  //indicate something is wrong with OFF/ON
-                lowBeamLeft = OFF;
-                lowBeamRight = ON;
+
            break;
+       
        }
    }
 }
 
+void displayMode() {
+    switch(modeSetting) {
+        case OFFmode:
+        displayCharPositionWrite( 0, 0 ); //first row, first position
+        displayStringWrite("Wiper Mode: OFF");
+        break;
+        case LSmode:
+        displayCharPositionWrite( 0, 0 ); //first row, first position
+        displayStringWrite("Wiper Mode: LS");
+        break;
+        case HSmode:
+        displayCharPositionWrite( 0, 0 ); //first row, first position
+        displayStringWrite("Wiper Mode: HS");   
+        break;
+        case INTmode:
+        displayCharPositionWrite(0, 0); 
+        displayStringWrite("Wiper Mode: INT");    
+        displayCharPositionWrite(1, 0);
+        displayStringWrite("Interval: ");
+        break;
+        default:
+        displayInit();
+        break;
+    }
+}
 
 bool debounceIgnitionUpdate()
 {
@@ -244,46 +314,6 @@ bool debounceIgnitionUpdate()
     return ignitionReleasedEvent;
 }
 
-//These two next functions should be generalized into one function
-//with the sensor sent as a parameter
-float averageLdrReading()
-{
-float ldrSensorAverage  = 0.0;
-float ldrSensorSum      = 0.0;
-float ldrSensorReading  = 0.0;
-static int ldrSampleIndex = 0;
-    int i = 0;
 
-    ldrSensorReadingsArray[ldrSampleIndex] = ldrSensor.read();
-    ldrSampleIndex++;
-    if ( ldrSampleIndex >= NUMBER_OF_AVG_SAMPLES) {
-        ldrSampleIndex = 0;
-    }
-    
-       ldrSensorSum = 0.0;
-    for (i = 0; i < NUMBER_OF_AVG_SAMPLES; i++) {
-        ldrSensorSum = ldrSensorSum + ldrSensorReadingsArray[i];
-    }
-    ldrSensorAverage = ldrSensorSum / NUMBER_OF_AVG_SAMPLES;  
-    return ldrSensorAverage;
-}
 
-float averagePotReading()
-{
-    float potAverage  = 0.0;
-    float potSum      = 0.0;
-    static int potSampleIndex = 0;
-    int i = 0;
 
-    potReadingsArray[potSampleIndex] = potentiometer.read();
-    potSampleIndex++;
-    if ( potSampleIndex >= NUMBER_OF_AVG_SAMPLES) {
-        potSampleIndex = 0;
-    }
-       potSum = 0.0;
-    for (i = 0; i < NUMBER_OF_AVG_SAMPLES; i++) {
-        potSum = potSum + potReadingsArray[i];
-    }
-    potAverage = potSum / NUMBER_OF_AVG_SAMPLES;  
-    return potAverage;
-}
