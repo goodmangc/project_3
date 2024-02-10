@@ -2,7 +2,7 @@
 #include "arm_book_lib.h"
 #include "display.h"
 
-//=====[Defines]===============================================================
+//=====[Defines]=============================================================
 
 //Millisecond delays for wiper control
 #define RAMP_TIME_HIGH      279
