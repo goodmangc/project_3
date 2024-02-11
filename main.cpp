@@ -41,8 +41,8 @@ DigitalIn driverSeat(PE_8);
 
 DigitalOut ignitionLight(LED2);
 
-AnalogIn wiperMode(A0);
-AnalogIn intVal(A1);
+AnalogIn wiperPot(A0);
+AnalogIn intPot(A1);
 
 PwmOut servo(PF_9);
 
@@ -109,7 +109,7 @@ int main()
 void inputsInit()
 {
     driverSeat.mode(PullDown);  //No initialization required for two analog inputs
-    ignitionButtonInit();
+    ignitionButtonInit();  //Set initial state BUTTON_DOWN for actice high button
 }
 
 void outputsInit()
@@ -121,7 +121,7 @@ void outputsInit()
 
 void ignitionButtonInit()
 {
-    if( ignition ) {
+    if( ! ignition ) {
         ignitionState = BUTTON_DOWN;
     } else {
         ignitionState = BUTTON_UP;
@@ -135,13 +135,11 @@ void ignitionUpdate()
         if ( driverSeat && ignitionReleasedEvent) {
             engineOn = true;
             ignitionLight = ON;
- //           uartUsb.write ("Engine on \r\n", 12);
         }
     }else{             // Turn engine off if it is on
         if ( ignitionReleasedEvent) {
             engineOn = false;
             ignitionLight = OFF;
- //           uartUsb.write ("Engine off \r\n", 13);
         }
     }
 }
@@ -149,8 +147,8 @@ void ignitionUpdate()
 void setWiperMode() {
     char str[100];
     int strLength;
-    float wiperRead = wiperMode.read();
-    float intervalRead = intVal.read();
+    float wiperRead = wiperPot.read();
+    float intervalRead = intPot.read();
 
   if (engineOn) {
  //   sprintf ( str, "Wiper Mode: %.3f    ", potAve);
