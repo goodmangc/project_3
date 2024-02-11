@@ -4,7 +4,7 @@
 
 //=====[Defines]=============================================================
 
-//Millisecond delays for wiper control - my edits to test branch
+//Millisecond delays for wiper control - my edits to test branch - edit #2 CT
 #define RAMP_TIME_HIGH      279
 #define RAMP_TIME_LOW       372
 #define INT_DELAY1          2256     //3000 - 744
