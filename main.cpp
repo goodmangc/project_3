@@ -5,7 +5,6 @@
 //=====[Defines]=============================================================
 
 //Millisecond delays for wiper control
-//Test comment
 #define RAMP_TIME_HIGH      279
 #define RAMP_TIME_LOW       372
 #define INT_DELAY1          2256     //3000 - 744
