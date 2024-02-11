@@ -11,7 +11,7 @@
 
 void displayInit( void );
  
-void displayCharPositionWrite( uint8_t charPositionX, uint8_t charPositionY );
+void displayCharPositionWrite( char charPositionX, char charPositionY );
 
 void displayStringWrite( const char * str );
 
