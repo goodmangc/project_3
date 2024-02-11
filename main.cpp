@@ -11,6 +11,7 @@
 #define INT_DELAY1          2256     //3000 - 744
 #define INT_DELAY2          5256
 #define INT_DELAY3          7256
+
 //Servo PWM settings
 #define DUTY_MIN 0.025
 #define DUTY_MAX 0.120
