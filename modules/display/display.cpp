@@ -134,7 +134,7 @@ void displayInit()
     delay( 1 );  
 }
 
-void displayCharPositionWrite( uint8_t charPositionX, uint8_t charPositionY )
+void displayCharPositionWrite( char charPositionX, char charPositionY )
 {    
     switch( charPositionY ) {
         case 0:
@@ -184,7 +184,7 @@ static void displayCodeWrite( bool type, uint8_t dataBus )
 {
     if ( type == DISPLAY_RS_INSTRUCTION )
         displayPinWrite( DISPLAY_PIN_RS, DISPLAY_RS_INSTRUCTION);
-        else
+    else
         displayPinWrite( DISPLAY_PIN_RS, DISPLAY_RS_DATA);
     displayPinWrite( DISPLAY_PIN_RW, DISPLAY_RW_WRITE );
     displayDataBusWrite( dataBus );
