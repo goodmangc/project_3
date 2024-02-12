@@ -146,14 +146,15 @@ void ignitionUpdate()
 
 void setWiperMode() {
     char str[100];
-    int strLength;
     float wiperRead = wiperPot.read();
+//    sprintf ( str, "Wiper Pot: %.3f    ", wiperRead);
+//    displayCharPositionWrite( 0, 1 );
+//    displayStringWrite( str );
     float intervalRead = intPot.read();
-
+//    sprintf ( str, "Int Pot: %.3f    ", intervalRead);
+ //   displayCharPositionWrite( 0, 1 );
+//    displayStringWrite( str );
   if (engineOn) {
- //   sprintf ( str, "Wiper Mode: %.3f    ", potAve);
- //   strLength = strlen(str);
-//    uartUsb.write( str, strLength );
     if (wiperRead <= LOW_SPEED ) {
         modeSetting = OFFmode;
     }else{
@@ -212,7 +213,7 @@ void wiperControl() {
                         }
                 }
            break;
-                case (HSmode):  //OFF
+                case (HSmode):  
                 wipeTime = wipeTime + 3*TIME_INCREMENT_MS;
                  if (wipeTime <= RAMP_TIME_HIGH) {
                 wiperPos = wiperPos + STEP_HIGH;     
@@ -227,6 +228,40 @@ void wiperControl() {
                         }
                 }                         
            break;
+            case (INTmode):
+            wipeTime = wipeTime + 3*TIME_INCREMENT_MS;
+            if (wipeTime <= RAMP_TIME_LOW) {
+                wiperPos = wiperPos + STEP_LOW;     
+                servo.write(wiperPos);
+                }else {
+                    if (wipeTime <= (2*RAMP_TIME_LOW)) {
+                        wiperPos = wiperPos - STEP_LOW;
+                        servo.write(wiperPos);
+                        } else {
+                            wiperPos = DUTY_MIN;
+                            servo.write(wiperPos);
+                        }
+                }
+            switch (intSetting){
+              case (int1):
+              if (wipeTime > 3000) {
+                wipeTime = 0;
+              } 
+              break;
+              case (int2):
+              if (wipeTime > 6000) {
+                wipeTime = 0;
+              } 
+              break;
+              case (int3):
+              if (wipeTime > 8000) {
+                wipeTime = 0;
+              } 
+              break;
+              }
+            
+
+
 
            default:  //indicate something is wrong with OFF/ON
 
@@ -237,6 +272,8 @@ void wiperControl() {
 }
 
 void displayMode() {
+    float intervalRead = intPot.read();
+    char str[100];
     switch(modeSetting) {
         case OFFmode:
         displayCharPositionWrite( 0, 0 ); //first row, first position
@@ -252,9 +289,10 @@ void displayMode() {
         break;
         case INTmode:
         displayCharPositionWrite(0, 0); 
-        displayStringWrite("Wiper Mode: INT");    
-        displayCharPositionWrite(1, 0);
-        displayStringWrite("Interval: ");
+        displayStringWrite("Wiper Mode: INT"); 
+        sprintf ( str, "Int Pot: %.3f    ", intervalRead);
+        displayCharPositionWrite( 0, 1 );
+        displayStringWrite( str );   
         break;
         default:
         displayInit();
@@ -268,7 +306,7 @@ bool debounceIgnitionUpdate()
     switch( ignitionState ) {
 
     case BUTTON_UP:
-        if( ignition ) {
+        if( !ignition ) {
             ignitionState = BUTTON_FALLING;
             accumulatedDebounceButtonTime = 0;
         }
@@ -276,8 +314,9 @@ bool debounceIgnitionUpdate()
 
     case BUTTON_FALLING:
         if( accumulatedDebounceButtonTime >= DEBOUNCE_BUTTON_TIME_MS ) {
-            if( ignition ) {
+            if( !ignition ) {
                 ignitionState = BUTTON_DOWN;
+                ignitionReleasedEvent = true;
             } else {
                 ignitionState = BUTTON_UP;
             }
@@ -287,7 +326,7 @@ bool debounceIgnitionUpdate()
         break;
 
     case BUTTON_DOWN:
-        if( !ignition ) {
+        if( ignition ) {
             ignitionState = BUTTON_RISING;
             accumulatedDebounceButtonTime = 0;
         }
@@ -295,9 +334,8 @@ bool debounceIgnitionUpdate()
 
     case BUTTON_RISING:
         if( accumulatedDebounceButtonTime >= DEBOUNCE_BUTTON_TIME_MS ) {
-            if( !ignition ) {
+            if( ignition ) {
                 ignitionState = BUTTON_UP;
-                ignitionReleasedEvent = true;
             } else {
                 ignitionState = BUTTON_DOWN;
             }
